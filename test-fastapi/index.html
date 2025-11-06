@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Transcript Fetcher & Video Recorder</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            padding: 30px;
+            background-color: white;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 450px;
+        }
+        input[type="text"], button {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #videoSection {
+            display: none;
+            margin-top: 30px;
+        }
+        video {
+            width: 100%;
+            max-width: 400px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        #transcript {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Transcript Fetcher</h1>
+        <input type="text" id="youtubeLink" placeholder="Enter YouTube Link here">
+        <button onclick="fetchTranscript()">Get Transcript</button>
+        <div id="result"></div>
+
+        <!-- Question and Video Section -->
+        <div id="questionsSection" style="display:none;">
+            <h3 id="questionText"></h3>
+            <button id="nextButton" onclick="nextQuestion()" style="display: none;">Next Question</button>
+        </div>
+        <div id="videoSection">
+            <h1>Answer Recording</h1>
+            <video id="preview" autoplay muted></video>
+            <button id="startButton">Start Recording</button>
+            <button id="stopButton" disabled>Stop Recording</button>
+            <br>
+            <video id="recordedVideo" controls></video>
+            <a id="downloadLink" style="display: none;">Download Video</a>
+            <h2>Transcript:</h2>
+            <div id="transcript"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentQuestionIndex = 0;
+        const questions = [
+            "Question 1: What did you understand from the video?",
+            "Question 2: Can you explain the key points?",
+            "Question 3: How would you apply the concepts discussed in the video?"
+        ];
+        let mediaRecorder;
+        let recordedChunks = [];
+        let recognition;
+        let transcriptText = "";
+        let transcriptStorage = []; // Variable to store transcripts for each question
+
+        async function fetchTranscript() {
+            const link = document.getElementById('youtubeLink').value;
+            const videoId = new URL(link).searchParams.get("v");
+            if (videoId) {
+                document.getElementById('result').innerText = `Fetching transcript for video ID: ${videoId}...`;
+                setTimeout(() => {
+                    document.getElementById('result').innerHTML = `<h3>Transcript fetched successfully!</h3>`;
+                    showQuestion();
+                }, 2000);
+            } else {
+                document.getElementById('result').innerText = 'Please enter a valid YouTube link.';
+            }
+        }
+
+        function showQuestion() {
+            if (currentQuestionIndex < questions.length) {
+                document.getElementById('questionsSection').style.display = 'block';
+                document.getElementById('questionText').innerText = questions[currentQuestionIndex];
+                document.getElementById('videoSection').style.display = 'block';
+                document.getElementById('nextButton').style.display = 'none';
+                resetRecorder();
+                initializeRecorder();
+            }
+        }
+
+        function nextQuestion() {
+            currentQuestionIndex++;
+            if (currentQuestionIndex < questions.length) {
+                showQuestion();
+            } else {
+                document.getElementById('questionsSection').innerHTML = "<h3>All questions answered.</h3>";
+            }
+        }
+
+        function resetRecorder() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            if (recognition) recognition.stop();
+            document.getElementById('recordedVideo').src = "";
+            document.getElementById('transcript').innerText = "";
+            recordedChunks = [];
+            transcriptText = "";
+        }
+
+        async function initializeRecorder() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('preview').srcObject = stream;
+
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) recordedChunks.push(event.data);
+                };
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const videoURL = URL.createObjectURL(blob);
+                    document.getElementById('recordedVideo').src = videoURL;
+                    document.getElementById('downloadLink').href = videoURL;
+                    document.getElementById('downloadLink').download = 'recorded-video.webm';
+                    document.getElementById('downloadLink').style.display = 'block';
+                };
+                initializeSpeechRecognition();
+            } catch (error) {
+                console.error("Error accessing media devices:", error);
+            }
+        }
+
+        function initializeSpeechRecognition() {
+            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.interimResults = true;
+            recognition.onresult = (event) => {
+                const interimTranscript = Array.from(event.results)
+                    .map(result => result[0].transcript)
+                    .join('');
+                if (event.results[event.results.length - 1].isFinal) {
+                    transcriptText += interimTranscript + "\n\n";
+                    document.getElementById('transcript').innerText = transcriptText;
+                } else {
+                    document.getElementById('transcript').innerText = transcriptText + interimTranscript;
+                }
+            };
+        }
+
+        document.getElementById('startButton').addEventListener('click', () => {
+            recordedChunks = [];
+            mediaRecorder.start();
+            recognition.start();
+            document.getElementById('startButton').disabled = true;
+            document.getElementById('stopButton').disabled = false;
+        });
+
+        document.getElementById('stopButton').addEventListener('click', () => {
+            mediaRecorder.stop();
+            recognition.stop();
+            saveTranscriptToVariable(); // Save the transcript to the variable
+            document.getElementById('startButton').disabled = false;
+            document.getElementById('stopButton').disabled = true;
+            document.getElementById('nextButton').style.display = 'inline-block';
+        });
+
+        function saveTranscriptToVariable() {
+            transcriptStorage.push({
+                question: questions[currentQuestionIndex],
+                transcript: transcriptText
+            });
+            console.log("Transcript saved to variable:", transcriptStorage); // For debugging
+        }
+    </script>
+</body>
+</html>
